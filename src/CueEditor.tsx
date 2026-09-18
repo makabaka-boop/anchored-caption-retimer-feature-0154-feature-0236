@@ -1,6 +1,14 @@
 import { useMemo, useRef, useState } from 'react';
 import { solve, DAY_MS, type Cue } from './solver/solve';
 import { parseCues, toCuesJson } from './solver/cues';
+import {
+  analyzeMaxRetention,
+  applyRepair,
+  buildRepairPlan,
+  sameRevision,
+  type RepairPlan,
+  type RevisionId,
+} from './solver/repair';
 
 interface Draft {
   cues: Cue[];
@@ -34,6 +42,16 @@ export function CueEditor(): JSX.Element {
   const fileRef = useRef<HTMLInputElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
 
+  // Revision identities: every import, adoption or pin add/remove/edit bumps a
+  // revision, immediately invalidating any repair plan generated earlier.
+  const [rev, setRev] = useState<RevisionId>({
+    draftRev: 0,
+    baseRev: 0,
+    pinsRev: 0,
+  });
+  const [plan, setPlan] = useState<RepairPlan | null>(null);
+  const [planNotice, setPlanNotice] = useState<string | null>(null);
+
   const preview: Preview | null = useMemo(() => {
     if (!draft || importError) return null;
     const r = solve({ cues: draft.cues, base: draft.base, pins });
@@ -42,8 +60,21 @@ export function CueEditor(): JSX.Element {
       : { kind: 'infeasible' };
   }, [draft, pins, importError]);
 
+  // Pure analysis: the preview below never touches pins, base or the error.
+  const planStale =
+    plan !== null &&
+    !sameRevision(plan, {
+      draftRev: rev.draftRev,
+      baseRev: rev.baseRev,
+      pinsRev: rev.pinsRev,
+    });
+
   const importText = (text: string): void => {
     const parsed = parseCues(text);
+    // Any import attempt is a revision event: stale plans never apply.
+    setRev((r) => ({ draftRev: r.draftRev + 1, baseRev: 0, pinsRev: 0 }));
+    setPlan(null);
+    setPlanNotice(null);
     if (!parsed.ok) {
       // Illegal import: drop the current preview, keep the last legal draft
       // and its pins untouched.
@@ -67,22 +98,35 @@ export function CueEditor(): JSX.Element {
 
   const setPin = (index: number, raw: string): void => {
     if (raw.trim() === '') {
-      // Clearing the field removes the lock; entering a value re-pins.
+      // Clearing the field removes the lock; entering a value re-pins. A
+      // no-op clear (field already empty) changes nothing and must not retire
+      // a generated plan.
+      if (!pins.has(index)) return;
       setPins((prev) => {
         const next = new Map(prev);
         next.delete(index);
         return next;
       });
+      bumpPins();
       return;
     }
     const value = Number(raw);
     if (!Number.isInteger(value) || value < 0 || value > DAY_MS) return;
+    // Re-entering the same value is not an add/remove/edit: leave revisions.
+    if (pins.get(index) === value) return;
     setPins((prev) => {
       const next = new Map(prev);
       // One pin per cue; re-editing overwrites the previous value.
       next.set(index, value);
       return next;
     });
+    bumpPins();
+  };
+
+  const bumpPins = (): void => {
+    setRev((r) => ({ ...r, pinsRev: r.pinsRev + 1 }));
+    setPlan(null);
+    setPlanNotice(null);
   };
 
   const removePin = (index: number): void => {
@@ -91,6 +135,35 @@ export function CueEditor(): JSX.Element {
       next.delete(index);
       return next;
     });
+    bumpPins();
+  };
+
+  // Pure maximum-retention analysis; pins/base/current error stay untouched.
+  const generateRepair = (): void => {
+    if (!draft || preview?.kind !== 'infeasible') return;
+    const analysis = analyzeMaxRetention({ cues: draft.cues, pins });
+    const built = buildRepairPlan(analysis, rev);
+    setPlan(built);
+    setPlanNotice(
+      built === null
+        ? 'P[n−1] 超过全天：无法靠解除固定点恢复，未生成修复方案。'
+        : null,
+    );
+  };
+
+  const applyPlan = (): void => {
+    if (!plan) return;
+    const result = applyRepair(plan, rev);
+    if (!result.ok) {
+      // Stale action: announce expiry without any partial modification.
+      setPlanNotice('修复方案已过期（工作稿、基线或固定点已变更），未做任何修改。');
+      return;
+    }
+    // One-shot replacement; the next render re-solves against the retained set.
+    setPins(result.pins);
+    setRev((r) => ({ ...r, pinsRev: r.pinsRev + 1 }));
+    setPlan(null);
+    setPlanNotice(null);
   };
 
   const adopt = (): void => {
@@ -98,6 +171,9 @@ export function CueEditor(): JSX.Element {
     // The adopted result becomes the baseline for the next round; pins stay
     // bound to cue indices so the operator can iterate on the same locks.
     setDraft({ cues: draft.cues, base: preview.starts });
+    setRev((r) => ({ ...r, baseRev: r.baseRev + 1 }));
+    setPlan(null);
+    setPlanNotice(null);
   };
 
   const downloadStarts = (starts: number[]): void => {
@@ -169,7 +245,58 @@ export function CueEditor(): JSX.Element {
       )}
       {!importError && draft && preview?.kind === 'infeasible' && (
         <div className="banner error">
-          INFEASIBLE — 固定点约束不可行（检查临界冲突的固定点），已清空预览。
+          <span>
+            INFEASIBLE — 固定点约束不可行（检查临界冲突的固定点），已清空预览。
+          </span>
+          <button
+            type="button"
+            className="repair-btn"
+            onClick={generateRepair}
+          >
+            生成最大保留修复
+          </button>
+        </div>
+      )}
+
+      {draft && planNotice && (
+        <div className="banner warn">
+          <span>{planNotice}</span>
+          <button
+            type="button"
+            className="repair-btn"
+            onClick={() => setPlanNotice(null)}
+          >
+            知道了
+          </button>
+        </div>
+      )}
+
+      {draft && plan && (
+        <div className={'banner repair' + (planStale ? ' stale' : '')}>
+          <div className="repair-head">
+            <span>
+              最大保留修复 · 保留 {plan.retainedCount}/{plan.totalCount} 个固定点
+              （解除 {plan.released.length} 个
+              {plan.mandatoryReleased.length > 0
+                ? `，其中越界必然解除 ${plan.mandatoryReleased.length} 个`
+                : ''}
+              ）
+            </span>
+            {planStale && <em className="stale-tag">已过期</em>}
+          </div>
+          <div className="repair-list" title="完整解除清单（cueIndex 升序）">
+            完整解除清单：[
+            {plan.released.length === 0 ? '无' : plan.released.join(', ')}]
+          </div>
+          <div className="repair-actions">
+            <button
+              type="button"
+              className="repair-apply"
+              onClick={applyPlan}
+            >
+              {planStale ? '尝试应用（已过期）' : '应用修复（一次性替换固定点）'}
+            </button>
+          </div>
         </div>
       )}
 

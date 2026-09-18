@@ -71,16 +71,101 @@ header h1 {
   font-size: 14px;
 }
 
-.banner.error {
-  background: #fdeaea;
-  border: 1px solid #e5484d;
-  color: #b01f24;
-}
-
 .banner.ok {
   background: #e8f5ec;
   border: 1px solid #46a758;
   color: #1d6b30;
+}
+
+.banner.warn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #fdf3e2;
+  border: 1px solid #d9822b;
+  color: #8a4b08;
+}
+
+.banner.error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.repair-btn {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border: 1px solid #b01f24;
+  background: #fff;
+  color: #b01f24;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.repair-btn:hover {
+  background: #b01f24;
+  color: #fff;
+}
+
+.banner.repair {
+  background: #f4f0fd;
+  border: 1px solid #7c5cd6;
+  color: #3c2a78;
+}
+
+.banner.repair.stale {
+  background: #f1f1f3;
+  border-color: #b6bbc5;
+  color: #8a909c;
+}
+
+.repair-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.stale-tag {
+  font-style: normal;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #e5484d;
+  color: #fff;
+  font-size: 11px;
+}
+
+.repair-list {
+  margin-top: 6px;
+  max-height: 96px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.repair-actions {
+  margin-top: 8px;
+}
+
+.repair-apply {
+  padding: 6px 14px;
+  border: 1px solid #7c5cd6;
+  background: #7c5cd6;
+  color: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.banner.repair.stale .repair-apply {
+  border-color: #b6bbc5;
+  background: #c3c8d2;
 }
 
 .empty {
