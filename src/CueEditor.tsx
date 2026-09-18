@@ -1,6 +1,13 @@
 import { useMemo, useRef, useState } from 'react';
 import { solve, DAY_MS, type Cue } from './solver/solve';
 import { parseCues, toCuesJson } from './solver/cues';
+import {
+  analyzeRepair,
+  applyRepairPlan,
+  createRepairPlan,
+  isRepairPlanCurrent,
+  type RepairPlan,
+} from './solver/repair';
 
 interface Draft {
   cues: Cue[];
@@ -10,6 +17,10 @@ interface Draft {
 type Preview =
   | { kind: 'ready'; starts: number[]; cost: number }
   | { kind: 'infeasible' };
+
+type RepairState =
+  | { kind: 'plan'; plan: RepairPlan }
+  | { kind: 'unrecoverable' };
 
 const ROW_H = 68;
 const LIST_H = 560;
@@ -31,6 +42,8 @@ export function CueEditor(): JSX.Element {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [pins, setPins] = useState<Map<number, number>>(new Map());
   const [importError, setImportError] = useState(false);
+  const [repair, setRepair] = useState<RepairState | null>(null);
+  const [repairNotice, setRepairNotice] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
 
@@ -41,6 +54,14 @@ export function CueEditor(): JSX.Element {
       ? { kind: 'ready', starts: r.starts, cost: r.cost }
       : { kind: 'infeasible' };
   }, [draft, pins, importError]);
+
+  // A plan is valid only against the exact state it was generated from; every
+  // import/adopt/pin edit installs fresh objects, so staleness is derived
+  // here and old plans are invalidated immediately.
+  const repairStale =
+    repair?.kind === 'plan' &&
+    !!draft &&
+    !isRepairPlanCurrent(repair.plan, { draft, base: draft.base, pins });
 
   const importText = (text: string): void => {
     const parsed = parseCues(text);
@@ -98,6 +119,42 @@ export function CueEditor(): JSX.Element {
     // The adopted result becomes the baseline for the next round; pins stay
     // bound to cue indices so the operator can iterate on the same locks.
     setDraft({ cues: draft.cues, base: preview.starts });
+  };
+
+  const generateRepair = (): void => {
+    if (!draft) return;
+    // Pure analysis: pins, baseline and the current error state stay
+    // untouched; only the repair panel state is written.
+    const r = analyzeRepair({ cues: draft.cues, pins });
+    setRepairNotice(null);
+    if (!r.ok) {
+      // P[n-1] > DAY_MS: unpinning cannot restore feasibility, no plan.
+      setRepair({ kind: 'unrecoverable' });
+      return;
+    }
+    setRepair({
+      kind: 'plan',
+      plan: createRepairPlan(r.analysis, { draft, base: draft.base, pins }),
+    });
+  };
+
+  const applyRepair = (plan: RepairPlan): void => {
+    if (!draft) return;
+    // Re-verify the captured identities; a stale plan applies nothing.
+    const r = applyRepairPlan(plan, { draft, base: draft.base, pins });
+    if (!r.applied) {
+      setRepairNotice('方案已过期：导入、采纳或固定点变更已将其作废，未做任何修改。');
+      return;
+    }
+    setRepair(null);
+    setRepairNotice(null);
+    // One-shot Map replacement; the preview re-solves from the new pins.
+    setPins(r.pins);
+  };
+
+  const dismissRepair = (): void => {
+    setRepair(null);
+    setRepairNotice(null);
   };
 
   const downloadStarts = (starts: number[]): void => {
@@ -170,6 +227,42 @@ export function CueEditor(): JSX.Element {
       {!importError && draft && preview?.kind === 'infeasible' && (
         <div className="banner error">
           INFEASIBLE — 固定点约束不可行（检查临界冲突的固定点），已清空预览。
+          <button type="button" className="banner-action" onClick={generateRepair}>
+            生成最大保留修复
+          </button>
+        </div>
+      )}
+
+      {repair?.kind === 'unrecoverable' && (
+        <div className="banner error">
+          时长前缀超过全天：即使解除全部固定点也无法恢复可行，未生成修复方案。
+          <button type="button" className="banner-action" onClick={dismissRepair}>
+            知道了
+          </button>
+        </div>
+      )}
+      {repair?.kind === 'plan' && (
+        <div className={'banner repair' + (repairStale ? ' stale' : '')}>
+          <div>
+            修复方案：保留 {repair.plan.analysis.keptCount} /{' '}
+            {repair.plan.analysis.keptCount + repair.plan.analysis.unpin.length}{' '}
+            个固定点 · 解除 {repair.plan.analysis.unpin.length} 个
+            {repair.plan.analysis.forced.length > 0 &&
+              `（含必然解除 ${repair.plan.analysis.forced.length} 个）`}
+            {repairStale && <strong> · 已过期（工作稿、基线或固定点已变化）</strong>}
+          </div>
+          <div className="unpin-list">
+            {repair.plan.analysis.unpin.map((i) => `#${i}`).join(' ')}
+          </div>
+          {repairNotice && <div className="repair-note">{repairNotice}</div>}
+          <div className="repair-actions">
+            <button type="button" onClick={() => applyRepair(repair.plan)}>
+              应用修复（解除 {repair.plan.analysis.unpin.length} 个固定点）
+            </button>
+            <button type="button" className="secondary" onClick={dismissRepair}>
+              忽略
+            </button>
+          </div>
         </div>
       )}
 

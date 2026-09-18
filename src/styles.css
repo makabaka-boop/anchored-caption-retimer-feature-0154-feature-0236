@@ -83,6 +83,83 @@ header h1 {
   color: #1d6b30;
 }
 
+.banner-action {
+  margin-left: 10px;
+  padding: 3px 10px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.banner.repair {
+  background: #e8f0fe;
+  border: 1px solid #2f6fed;
+  color: #1f4fb3;
+}
+
+.banner.repair.stale {
+  background: #f1f3f6;
+  border-color: #c3c8d2;
+  color: #5b6270;
+}
+
+.unpin-list {
+  max-height: 96px;
+  overflow-y: auto;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid #c9d6f2;
+  border-radius: 4px;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.banner.repair.stale .unpin-list {
+  border-color: #d5d9e0;
+}
+
+.repair-note {
+  margin-top: 6px;
+  color: #b01f24;
+  font-weight: 600;
+}
+
+.repair-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.repair-actions button {
+  padding: 4px 12px;
+  border: 1px solid #2f6fed;
+  background: #2f6fed;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.repair-actions button.secondary {
+  background: #fff;
+  color: #2f6fed;
+}
+
+.banner.repair.stale .repair-actions button {
+  border-color: #8a909c;
+  background: #8a909c;
+}
+
+.banner.repair.stale .repair-actions button.secondary {
+  background: #fff;
+  color: #5b6270;
+}
+
 .empty {
   padding: 40px;
   text-align: center;
